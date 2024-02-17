@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import pprint
+from models.fuel_consumption_predictor import FuelConsumptionPredictor
 
 try:
     sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
@@ -287,6 +288,11 @@ class GenerateTraffic():
                                 y_value = vector.y
                                 torque_curve_data.append((x_value, y_value))
                             this_world = i.get_world()
+                            predictor = FuelConsumptionPredictor()
+                            prediction = predictor.predict(50.0, 60.0, 1, 1, 0, 1)
+                            #     def predict(self, distance, speed, gas_type, AC, rain, sun):
+                            print("Predicted fuel consumption:", prediction)
+
                             vehicle_info = {
                                 "Vehicle Speed": i.get_velocity().length(),
                                 "Vehicle Acceleration": i.get_acceleration().length(),
