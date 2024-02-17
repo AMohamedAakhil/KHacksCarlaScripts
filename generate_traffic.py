@@ -7,7 +7,7 @@ import sys
 import time
 import pprint
 from models.fuel_consumption_predictor import FuelConsumptionPredictor
-from utils import calculate_engine_rpm, get_vehicle_inclination
+from utils import calculate_engine_rpm, get_vehicle_inclination, calculate_fuel_consumption
 
 try:
     sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
@@ -82,7 +82,7 @@ class GenerateTraffic():
         all_id = []
         client = carla.Client(self.host, self.port)
         client.set_timeout(10.0)
-        synchronous_master = False
+        synchronous_master = True
         random.seed(self.seed if self.seed is not None else int(time.time()))
 
         try:
@@ -99,12 +99,13 @@ class GenerateTraffic():
                 traffic_manager.set_random_device_seed(self.seed)
 
             settings = world.get_settings()
+
             if not self.asynch:
                 traffic_manager.set_synchronous_mode(True)
                 if not settings.synchronous_mode:
                     synchronous_master = True
                     settings.synchronous_mode = True
-                    settings.fixed_delta_seconds = 0.05
+                    settings.fixed_delta_seconds = 1
                 else:
                     synchronous_master = False
             else:
@@ -283,8 +284,10 @@ class GenerateTraffic():
                     vehicle_distance_travelled = vehicle.get_location()
                     vehicle_info = {
                         "id": vehicle_id,
+                        "vehicle_object": vehicle,
                         "previous_location": vehicle.get_location(),
                         "distance_travelled": 0,
+                        "fuel_consumption": 0,
                     }
                     vehicles_distance_travelled.append(vehicle_info)
  
@@ -292,11 +295,24 @@ class GenerateTraffic():
                     for vehicle_info in vehicles_distance_travelled:
                         if vehicle_info["id"] == vehicle_id:
                             return vehicle_info["previous_location"]
+                def get_odometer_value(vehicle_id):
+                    for vehicle_info in vehicles_distance_travelled:
+                        if vehicle_info["id"] == vehicle_id:
+                            return vehicle_info["distance_travelled"]
+                def update_odometer(vehicle_id, distance):
+                    for vehicle_info in vehicles_distance_travelled:
+                        if vehicle_info["id"] == vehicle_id:
+                            vehicle_info["distance_travelled"] += distance
+                def update_fuel_consumption(vehicle_id, fuel_consumption):
+                    for vehicle_info in vehicles_distance_travelled:
+                        if vehicle_info["id"] == vehicle_id:
+                            vehicle_info["fuel_consumption"] += fuel_consumption
                         
                 # Main loop
                 count = 0
+                customspeed = 0
                 arr = []
-                while count < 300:
+                while count < 10000:
                     if not self.asynch and synchronous_master:
                         world.tick()
                         all_vehicle_actors = world.get_actors(vehicles_list)
@@ -307,6 +323,9 @@ class GenerateTraffic():
                             gear = control.gear
                             physics = i.get_physics_control()
                             throttle = control.throttle
+                            mass = physics.mass
+                            drag_coefficient = physics.drag_coefficient
+                            moi = physics.moi
                             max_rpm = physics.max_rpm
                             speed = i.get_velocity().length()
                             final_drive_ratio = physics.final_ratio
@@ -318,7 +337,7 @@ class GenerateTraffic():
                             engine_rpm = calculate_engine_rpm(gear, gear_ratio, final_drive_ratio, speed, wheel_radius)
                             rotation = i.get_transform().rotation
                             inclination = get_vehicle_inclination(rotation)
-
+                            customspeed += speed
                             # Torque Curve Data 
                             torque_curve_data = []
                             for vector in i.get_physics_control().torque_curve:
@@ -334,8 +353,13 @@ class GenerateTraffic():
                            
                             # Updating Odometer
                             distance = i.get_location().distance(get_previous_location(i.id))
-
+                            update_odometer(i.id, distance)
+                            odometer = get_odometer_value(i.id)
+                            # Calculating Fuel Consumption
+                            fuel_consumption = calculate_fuel_consumption(mass, i.get_acceleration().length(), speed, engine_rpm, distance, drag_coefficient, moi) # def calculate_fuel_consumption(mass_vehicle, acceleration, speed, rpm, distance, drag_coefficient, moment_of_inertia):
+                            update_fuel_consumption(i.id, fuel_consumption)
                             vehicle_info = {
+                                "Time Step": count,
                                 "Vehicle Speed": i.get_velocity().length(),
                                 "Vehicle Acceleration": i.get_acceleration().length(),
                                 "Vehicle Throttle": i.get_control().throttle,
@@ -348,24 +372,28 @@ class GenerateTraffic():
                                 "max_rpm": i.get_physics_control().max_rpm,
                                 "torque_curve": torque_curve_data,
                                 "accelerometer": i.get_acceleration().length(), 
-                                "odometer": distance,
+                                "odometer": odometer,
                                 "fuel_consumption_per_100km": prediction,
                                 "engine_rpm": engine_rpm,
                                 "inclination": inclination,
                                 "max_rpm": max_rpm,
                                 "throttle": throttle,
+                                "fuel_consumption": fuel_consumption,
+                                "moi": moi,
+                                "drag_coefficient": drag_coefficient,
+                                "mass": mass,
                             }
                             # Write vehicle_info to CSV file
                             pprint.pprint(vehicle_info)
                             arr.append(vehicle_info)
                             count += 1
+                            print(customspeed/count)
 
                     else:
                         world.wait_for_tick()
         
 
         finally:
-
             if not self.asynch and synchronous_master:
                 settings = world.get_settings()
                 settings.synchronous_mode = False

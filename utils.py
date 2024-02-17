@@ -47,3 +47,9 @@ def calculate_engine_rpm(current_gear: int, gear_ratio: float, final_drive_ratio
 #
 # def calculate_engine_rpm(gear_ratio: float, max_rpm: float, throttle: float, final_ratio: float):
 #     return (max_rpm * throttle) / (final_ratio * gear_ratio)
+
+def calculate_fuel_consumption(mass_vehicle, acceleration, speed, rpm, distance, drag_coefficient, moment_of_inertia):
+    fuel_consumption = (mass_vehicle * acceleration * speed / rpm) * distance
+    fuel_consumption += drag_coefficient * speed**3
+    fuel_consumption += 0.5 * moment_of_inertia * speed**2
+    return 0.0001*fuel_consumption
