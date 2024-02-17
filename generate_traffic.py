@@ -7,6 +7,7 @@ import sys
 import time
 import pprint
 from models.fuel_consumption_predictor import FuelConsumptionPredictor
+from utils import calculate_engine_rpm, get_vehicle_inclination
 
 try:
     sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
@@ -295,23 +296,45 @@ class GenerateTraffic():
                 # Main loop
                 count = 0
                 arr = []
-                while count < 10:
+                while count < 300:
                     if not self.asynch and synchronous_master:
                         world.tick()
                         all_vehicle_actors = world.get_actors(vehicles_list)
                         for i in all_vehicle_actors:
+
+                            # Basic Stuff
+                            control = i.get_control()
+                            gear = control.gear
+                            physics = i.get_physics_control()
+                            throttle = control.throttle
+                            max_rpm = physics.max_rpm
+                            speed = i.get_velocity().length()
+                            final_drive_ratio = physics.final_ratio
+                            try:
+                                gear_ratio = physics.forward_gears[gear].ratio
+                            except IndexError:
+                                gear_ratio = physics.forward_gears[0].ratio
+                            wheel_radius = physics.wheels[0].radius / 100
+                            engine_rpm = calculate_engine_rpm(gear, gear_ratio, final_drive_ratio, speed, wheel_radius)
+                            rotation = i.get_transform().rotation
+                            inclination = get_vehicle_inclination(rotation)
+
+                            # Torque Curve Data 
                             torque_curve_data = []
                             for vector in i.get_physics_control().torque_curve:
                                 x_value = vector.x
                                 y_value = vector.y
                                 torque_curve_data.append((x_value, y_value))
                             this_world = i.get_world()
+
+                            # Fuel level prediction
                             predictor = FuelConsumptionPredictor()
-                            prediction = predictor.predict(50.0, 60.0, 1, 1, 0, 1)
-                            #     def predict(self, distance, speed, gas_type, AC, rain, sun):
+                            prediction = predictor.predict(50.0, 60.0, 1, 1, 0, 1) #(distance, speed, gas_type, AC, rain, sun):
                             print("Predicted fuel consumption:", prediction)
-                            # updating odometer
+                           
+                            # Updating Odometer
                             distance = i.get_location().distance(get_previous_location(i.id))
+
                             vehicle_info = {
                                 "Vehicle Speed": i.get_velocity().length(),
                                 "Vehicle Acceleration": i.get_acceleration().length(),
@@ -326,6 +349,11 @@ class GenerateTraffic():
                                 "torque_curve": torque_curve_data,
                                 "accelerometer": i.get_acceleration().length(), 
                                 "odometer": distance,
+                                "fuel_consumption_per_100km": prediction,
+                                "engine_rpm": engine_rpm,
+                                "inclination": inclination,
+                                "max_rpm": max_rpm,
+                                "throttle": throttle,
                             }
                             # Write vehicle_info to CSV file
                             pprint.pprint(vehicle_info)
