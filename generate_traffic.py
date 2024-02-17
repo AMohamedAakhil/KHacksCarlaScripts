@@ -258,7 +258,6 @@ class GenerateTraffic():
 
             # Example of how to use Traffic Manager parameters
             traffic_manager.global_percentage_speed_difference(10.0)
-
             with open('vehicle_data.csv', 'w', newline='') as csvfile:
                 fieldnames = [
                     "Vehicle Speed",
@@ -275,23 +274,30 @@ class GenerateTraffic():
                 # Write header row to CSV file
                 writer.writeheader()
 
-
+                # distance travelled array
+                vehicles_distance_travelled = []
+                all_vehicle_actors = world.get_actors(vehicles_list)
+                for vehicle in all_vehicle_actors:
+                    vehicle_id = vehicle.id
+                    vehicle_distance_travelled = vehicle.get_location()
+                    vehicle_info = {
+                        "id": vehicle_id,
+                        "previous_location": vehicle.get_location(),
+                        "distance_travelled": 0,
+                    }
+                    vehicles_distance_travelled.append(vehicle_info)
+ 
+                def get_previous_location(vehicle_id):
+                    for vehicle_info in vehicles_distance_travelled:
+                        if vehicle_info["id"] == vehicle_id:
+                            return vehicle_info["previous_location"]
+                        
                 # Main loop
-                # Initialize variables
                 count = 0
-                prev_tick_time = time.time()
-                odometer = 0  # Assuming initial odometer value is 0
-                arr = []  # Assuming arr is defined somewhere else in your code
-
-                while count < 200:
+                arr = []
+                while count < 10:
                     if not self.asynch and synchronous_master:
                         world.tick()
-                        prev_tick_time = current_tick_time
-                        current_tick_time = time.time()  # Get the current time
-                        
-                        # Calculate elapsed time since last tick
-                        elapsed_time = current_tick_time - prev_tick_time
-                        
                         all_vehicle_actors = world.get_actors(vehicles_list)
                         for i in all_vehicle_actors:
                             torque_curve_data = []
@@ -299,13 +305,13 @@ class GenerateTraffic():
                                 x_value = vector.x
                                 y_value = vector.y
                                 torque_curve_data.append((x_value, y_value))
-                                
                             this_world = i.get_world()
-                            #     def predict(self, distance, speed, gas_type, AC, rain, sun):
                             predictor = FuelConsumptionPredictor()
-                            fuel_prediction = predictor.predict(odometer, i.get_velocity().length(), 1, 1, 0, 1)
-                            print("Predicted fuel consumption:", fuel_prediction)
-                            
+                            prediction = predictor.predict(50.0, 60.0, 1, 1, 0, 1)
+                            #     def predict(self, distance, speed, gas_type, AC, rain, sun):
+                            print("Predicted fuel consumption:", prediction)
+                            # updating odometer
+                            distance = i.get_location().distance(get_previous_location(i.id))
                             vehicle_info = {
                                 "Vehicle Speed": i.get_velocity().length(),
                                 "Vehicle Acceleration": i.get_acceleration().length(),
@@ -319,24 +325,16 @@ class GenerateTraffic():
                                 "max_rpm": i.get_physics_control().max_rpm,
                                 "torque_curve": torque_curve_data,
                                 "accelerometer": i.get_acceleration().length(), 
-                                "odometer": odometer,  # Use updated odometer value
-                                "fuel_prediction": fuel_prediction,
+                                "odometer": distance,
                             }
+                            # Write vehicle_info to CSV file
                             pprint.pprint(vehicle_info)
                             arr.append(vehicle_info)
-                            
-                            # Update odometer value based on speed and elapsed time
-                            speed_mps = i.get_velocity().length()  # Speed in meters per second
-                            distance_travelled = speed_mps * elapsed_time  # Distance = speed * time
-                            odometer += distance_travelled  # Update odometer
-                            
-                            print("Odometer value:", odometer)  # Print or use odometer value as needed
-                            
-                        prev_tick_time = current_tick_time  # Update previous tick time
-                        
-                        count += 1
+                            count += 1
+
                     else:
                         world.wait_for_tick()
+        
 
         finally:
 
@@ -363,7 +361,7 @@ class GenerateTraffic():
 if __name__ == '__main__':
 
     try:
-        traffic1 = GenerateTraffic(number_of_vehicles=2)
+        traffic1 = GenerateTraffic(number_of_vehicles=1)
         traffic1.start_traffic()
     except KeyboardInterrupt:
         pass
